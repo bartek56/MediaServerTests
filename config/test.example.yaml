@@ -1,0 +1,87 @@
+# Copy this file to config/test.yaml and adjust it for the test device.
+# Do not put passwords, tokens or private keys in this file.
+
+device:
+  name: mediaserver-rpi4
+  host: 192.0.2.10
+  ssh:
+    port: 22
+    username: tester
+    key_path: ~/.ssh/rpi4_acceptance_ed25519
+    known_hosts: ~/.ssh/known_hosts
+    connect_timeout: 10
+    command_timeout: 30
+
+connectivity:
+  tcp_ports:
+    - name: SSH
+      port: 22
+    - name: HTTP
+      port: 80
+
+system:
+  # Missing diagnostic tools are reported as skipped checks, not as a broken
+  # device. Only list tools expected in the selected Yocto image.
+  required_commands: [uname, cat, df]
+  filesystems:
+    - path: /
+      min_free_mb: 256
+  min_available_memory_mb: 64
+  max_memory_used_percent: 90
+  # Set this only when a stable minimum uptime is part of the test case.
+  # min_uptime_seconds: 60
+  # Optional, bounded to the last 200 lines by the test.
+  # log_source: /var/log/messages
+  # critical_log_patterns: ["Kernel panic", "Out of memory"]
+
+# Names and managers are configuration data. The test supports systemd,
+# sysv and process checks; it does not assume every image uses systemd.
+services:
+  - name: ssh.service
+    manager: systemd
+    expected_state: active
+    diagnostics: true
+    ports:
+      - name: SSH service
+        port: 22
+  # Add only services included in the image under test, for example:
+  # - name: apache2.service
+  #   manager: systemd
+  #   expected_state: active
+  #   ports: [{name: MediaServer web, port: 80}]
+
+http:
+  timeout: 10
+  verify_tls: true
+  # Use headers_from_env for values that must be sent with every request.
+  # headers_from_env:
+  #   X-Test-Run: RPI4_TEST_RUN_ID
+  endpoints:
+    - name: MediaServer web page
+      url: http://192.0.2.10/
+      expected_status: [200]
+      follow_redirects: true
+      content_type: text/html
+      contains: ["MediaServer"]
+    - name: Example JSON API
+      url: http://192.0.2.10/api/health
+      expected_status: [200]
+      content_type: application/json
+      json_fields:
+        status: ok
+  # Endpoint authentication is environment-only, for example:
+  # - name: Protected API
+  #   url: https://192.0.2.10/api/private
+  #   auth: {bearer_token_env: RPI4_API_TOKEN}
+
+web_ui:
+  enabled: false
+  headless: true
+  fail_on_console_errors: true
+  screenshot_dir: reports/screenshots
+  endpoints:
+    - name: MediaServer home
+      url: http://192.0.2.10/
+      selectors: ["body"]
+      interactions: []
+      screenshot_on_failure: true

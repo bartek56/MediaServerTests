@@ -1,0 +1,96 @@
+# Profile for mediaserver-image-base.
+# Copy to config/test.yaml for a local run and set key_path to a private key
+# already authorized for root on the development Raspberry Pi 4.
+# Tvheadend and Nextcloud are intentionally absent from this profile.
+
+profile: mediaserver-image-base
+
+device:
+  name: mediaserver
+  host: 192.168.1.211
+  ssh:
+    port: 22
+    username: root
+    known_hosts: ~/.ssh/known_hosts
+    connect_timeout: 10
+    command_timeout: 30
+    # Development image only: the root account has an empty password.
+    # Prefer key_path for non-development devices.
+    allow_empty_password: true
+
+connectivity:
+  tcp_ports:
+    - {name: SSH, port: 22}
+    - {name: Apache, port: 80}
+    - {name: FileBrowser, port: 8090}
+    - {name: MPD, port: 6600}
+    - {name: MiniDLNA, port: 8200}
+    - {name: Jellyfin, port: 8096}
+    - {name: Transmission RPC, port: 9091}
+    - {name: Samba, port: 445}
+    - {name: FTP, port: 21}
+
+system:
+  required_commands: [uname, cat, df]
+  filesystems:
+    - {path: /, min_free_mb: 256}
+  min_available_memory_mb: 64
+  max_memory_used_percent: 90
+
+# A service with required: false is reported as skipped when the selected
+# hardware/configuration does not provide it (for example audio hardware).
+services:
+  - {name: apache2.service, manager: systemd, required: true, diagnostics: true}
+  - {name: filebrowser.service, manager: systemd, required: true, diagnostics: true, ports: [{name: FileBrowser, port: 8090}]}
+  - {name: mpd.service, manager: systemd, required: true, diagnostics: true, ports: [{name: MPD, port: 6600}]}
+  - {name: ympd.service, manager: systemd, required: true, diagnostics: true}
+  - {name: minidlna.service, manager: systemd, required: true, diagnostics: true, ports: [{name: MiniDLNA, port: 8200}]}
+  - {name: transmission-daemon.service, manager: systemd, required: true, diagnostics: true, ports: [{name: Transmission RPC, port: 9091}]}
+  - {name: vsftpd.service, manager: systemd, required: true, diagnostics: true, ports: [{name: FTP, port: 21}]}
+  - {name: snapserver.service, manager: systemd, required: true, diagnostics: true}
+  - {name: snapclient.service, manager: systemd, required: true, diagnostics: true}
+  - {name: pulseaudio.service, manager: systemd, required: true, diagnostics: true}
+  - {name: youtubedl-web.service, manager: systemd, required: true, diagnostics: true}
+  - {name: alarm.service, manager: systemd, required: false, diagnostics: true}
+
+mpd:
+  # All tracks from the MPD database are added; the first one is played.
+  startup_timeout: 8
+  poll_interval: 0.5
+
+http:
+  timeout: 10
+  verify_tls: true
+  endpoints:
+    - name: Apache root
+      url: http://192.168.1.211/
+      expected_status: [200, 403]
+      follow_redirects: true
+    - name: FileBrowser
+      url: http://192.168.1.211:8090/
+      expected_status: [200, 302, 401]
+      follow_redirects: false
+    - name: MiniDLNA status
+      url: http://192.168.1.211:8200/
+      expected_status: [200]
+      content_type: text/html
+    - name: Jellyfin web
+      url: http://192.168.1.211:8096/
+      expected_status: [200, 302]
+      follow_redirects: true
+    - name: Transmission RPC unauthenticated probe
+      url: http://192.168.1.211:9091/transmission/rpc
+      expected_status: [401, 403, 409]
+      follow_redirects: false
+    - name: Snapcast web
+      url: http://192.168.1.211:1780/
+      expected_status: [200]
+      required: false
+  # Add response header expectations under an endpoint's `headers` map.
+
+web_ui:
+  enabled: false
+  headless: true
+  fail_on_console_errors: true
+  screenshot_dir: reports/screenshots
+  endpoints: []
