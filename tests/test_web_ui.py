@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import logging
 
 import pytest
 
@@ -10,6 +11,7 @@ from conftest import AcceptanceConfig, WebUIEndpoint, redact
 
 
 pytestmark = pytest.mark.acceptance
+LOGGER = logging.getLogger(__name__)
 
 
 def _screenshot_path(endpoint: WebUIEndpoint, directory) -> object:
@@ -34,11 +36,29 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
         context = browser.new_context()
         page = context.new_page()
         console_errors: list[str] = []
-        page.on("console", lambda message: console_errors.append(redact(message.text)) if message.type == "error" else None)
-        page.on("pageerror", lambda error: console_errors.append(redact(str(error))))
+
+        def capture_console(message) -> None:
+            if message.type == "error":
+                console_errors.append(f"console error: {redact(message.text)}")
+
+        def capture_page_error(error) -> None:
+            console_errors.append(f"page error: {redact(str(error))}")
+
+        def capture_failed_response(response) -> None:
+            if response.status >= 400:
+                console_errors.append(
+                    f"HTTP {response.status} {response.request.method}: {redact(response.url)}"
+                )
+
+        page.on("console", capture_console)
+        page.on("pageerror", capture_page_error)
+        page.on("response", capture_failed_response)
+        endpoint_failures: list[str] = []
         try:
             for endpoint in settings.endpoints:
                 try:
+                    # Errors from a previous endpoint must not affect this one.
+                    console_errors.clear()
                     page.goto(endpoint.url, wait_until="load", timeout=10000)
                     assert page.url, f"web UI endpoint {endpoint.name} did not load"
                     for selector in endpoint.selectors:
@@ -49,7 +69,9 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
                         action = interaction.get("action")
                         selector = interaction.get("selector")
                         if action not in {"click", "fill", "press"} or not selector:
-                            pytest.fail(f"invalid interaction configured for web UI endpoint {endpoint.name}")
+                            raise AssertionError(
+                                f"invalid interaction configured for web UI endpoint {endpoint.name}"
+                            )
                         locator = page.locator(str(selector)).first
                         if action == "click":
                             locator.click()
@@ -57,12 +79,54 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
                             locator.fill(str(interaction.get("value", "")))
                         else:
                             locator.press(str(interaction.get("value", "Enter")))
-                    if settings.fail_on_console_errors and console_errors:
-                        pytest.fail(f"JavaScript errors were reported by web UI endpoint {endpoint.name}")
-                except Exception:
+                    ignored_console_errors = [
+                        error
+                        for error in console_errors
+                        if any(pattern in error for pattern in endpoint.ignore_console_errors)
+                    ]
+                    unexpected_console_errors = [
+                        error for error in console_errors if error not in ignored_console_errors
+                    ]
+                    if ignored_console_errors:
+                        LOGGER.info(
+                            "Web UI endpoint ignored expected errors: name=%s errors=%s",
+                            endpoint.name,
+                            ignored_console_errors,
+                        )
+                    if settings.fail_on_console_errors and unexpected_console_errors:
+                        raise AssertionError(
+                            f"JavaScript errors were reported by web UI endpoint {endpoint.name}:\n"
+                            + "\n".join(f"  - {error}" for error in unexpected_console_errors)
+                        )
+                    if endpoint.screenshot_on_success:
+                        screenshot = _screenshot_path(endpoint, settings.screenshot_dir)
+                        page.screenshot(path=str(screenshot), full_page=True)
+                    else:
+                        screenshot = None
+                    LOGGER.info(
+                        "Web UI endpoint result: name=%s status=passed url=%s screenshot=%s",
+                        endpoint.name,
+                        endpoint.url,
+                        screenshot,
+                    )
+                except Exception as error:
+                    screenshot = None
                     if endpoint.screenshot_on_failure:
-                        page.screenshot(path=str(_screenshot_path(endpoint, settings.screenshot_dir)), full_page=True)
-                    raise
+                        screenshot = _screenshot_path(endpoint, settings.screenshot_dir)
+                        page.screenshot(path=str(screenshot), full_page=True)
+                    error_text = redact(str(error))
+                    LOGGER.info(
+                        "Web UI endpoint result: name=%s status=failed url=%s error=%s screenshot=%s",
+                        endpoint.name,
+                        endpoint.url,
+                        error_text,
+                        screenshot,
+                    )
+                    endpoint_failures.append(f"{endpoint.name}: {error_text}")
+            if endpoint_failures:
+                pytest.fail("Web UI endpoint checks failed:\n" + "\n".join(
+                    f"  - {failure}" for failure in endpoint_failures
+                ))
         finally:
             try:
                 context.close()

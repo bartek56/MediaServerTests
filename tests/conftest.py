@@ -137,6 +137,8 @@ class WebUIEndpoint:
     selectors: tuple[str, ...] = ()
     interactions: tuple[Mapping[str, Any], ...] = ()
     screenshot_on_failure: bool = True
+    screenshot_on_success: bool = False
+    ignore_console_errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,25 @@ class MPDSettings:
 
 
 @dataclass(frozen=True)
+class SnapcastSettings:
+    http_port: int = 1780
+    expected_stream: str = "MPD"
+    expected_source_path: str = "/tmp/snapmpdfifo"
+    bluetooth_stream: str = "Bluetooth"
+
+
+@dataclass(frozen=True)
+class PulseAudioSettings:
+    tcp_port: int = 4713
+    expected_protocol_version: str = "35"
+    expected_user_name: str = "pulse"
+    expected_server_name: str = "pulseaudio"
+    expected_sample_specification: str = "s16le 2ch 44100Hz"
+    expected_default_sink: str = "alsa_output.headphones.stereo-fallback"
+    expected_default_source: str = "alsa_output.headphones.stereo-fallback.monitor"
+
+
+@dataclass(frozen=True)
 class AcceptanceConfig:
     name: str
     ssh: SSHSettings
@@ -171,13 +192,19 @@ class AcceptanceConfig:
     http: HTTPSettings
     web_ui: WebUISettings
     mpd: MPDSettings = field(default_factory=MPDSettings)
+    snapcast: SnapcastSettings = field(default_factory=SnapcastSettings)
+    pulseaudio: PulseAudioSettings = field(default_factory=PulseAudioSettings)
 
 
 TEST_DESCRIPTIONS = {
     "test_raspberry_pi_4_identity": "Verifies that the SSH target identifies itself as Raspberry Pi 4.",
     "test_mpd_protocol_smoke": "Checks that MPD accepts a TCP connection and returns an MPD greeting.",
     "test_mpd_mpc_playback": "Adds all tracks from the MPD database with mpc, plays the first one and verifies advancing playback.",
+    "test_snapclient_defaults_to_mpd_stream": "Checks Snapserver configuration and runtime client routing: the RPi snapclient must use MPD, not Bluetooth.",
+    "test_pulseaudio_tcp_info": "Checks the PulseAudio TCP server through pactl and verifies its negotiated server and default audio settings.",
     "test_transmission_rpc_probe": "Checks that the Transmission RPC endpoint responds to an unauthenticated probe.",
+    "test_transmission_web_assets": "Checks over SSH that the Transmission web UI includes an index.html asset on the target.",
+    "test_transmission_web_ui": "Checks that the Transmission web interface returns a valid page instead of a missing-files error.",
     "test_ssh_connectivity": "Checks SSH reachability, host-key validation and authentication to the target.",
     "test_configured_tcp_ports": "Checks configured TCP ports from the Ubuntu test computer.",
     "test_system_information": "Reads basic remote kernel and system information through SSH.",
@@ -197,6 +224,10 @@ TEST_DESCRIPTIONS = {
     "test_http_request_uses_environment_token_without_exposing_it": "Checks environment-backed HTTP bearer authentication handling.",
 }
 _HTML_HEADER_ADDED = False
+_TRANSMISSION_TEST_DEFAULTS = {
+    "TRANSMISSION_RPC_USERNAME": "transmission",
+    "TRANSMISSION_RPC_PASSWORD": "transmission",
+}
 
 
 def _test_description(item: pytest.Item) -> str:
@@ -419,6 +450,55 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         poll_interval=float(_number(mpd_data.get("poll_interval", 0.5), "mpd.poll_interval")),
     )
 
+    snapcast_data = _mapping(root.get("snapcast"), "snapcast")
+    snapcast_http_port = int(_number(snapcast_data.get("http_port", 1780), "snapcast.http_port", integer=True))
+    if not 1 <= snapcast_http_port <= 65535:
+        raise ConfigError("snapcast.http_port must be between 1 and 65535")
+    snapcast = SnapcastSettings(
+        http_port=snapcast_http_port,
+        expected_stream=_required_string(snapcast_data.get("expected_stream", "MPD"), "snapcast.expected_stream"),
+        expected_source_path=_required_string(
+            snapcast_data.get("expected_source_path", "/tmp/snapmpdfifo"),
+            "snapcast.expected_source_path",
+        ),
+        bluetooth_stream=_required_string(
+            snapcast_data.get("bluetooth_stream", "Bluetooth"),
+            "snapcast.bluetooth_stream",
+        ),
+    )
+
+    pulseaudio_data = _mapping(root.get("pulseaudio"), "pulseaudio")
+    pulseaudio_port = int(_number(pulseaudio_data.get("tcp_port", 4713), "pulseaudio.tcp_port", integer=True))
+    if not 1 <= pulseaudio_port <= 65535:
+        raise ConfigError("pulseaudio.tcp_port must be between 1 and 65535")
+    pulseaudio = PulseAudioSettings(
+        tcp_port=pulseaudio_port,
+        expected_protocol_version=_required_string(
+            pulseaudio_data.get("expected_protocol_version", "35"),
+            "pulseaudio.expected_protocol_version",
+        ),
+        expected_user_name=_required_string(
+            pulseaudio_data.get("expected_user_name", "pulse"),
+            "pulseaudio.expected_user_name",
+        ),
+        expected_server_name=_required_string(
+            pulseaudio_data.get("expected_server_name", "pulseaudio"),
+            "pulseaudio.expected_server_name",
+        ),
+        expected_sample_specification=_required_string(
+            pulseaudio_data.get("expected_sample_specification", "s16le 2ch 44100Hz"),
+            "pulseaudio.expected_sample_specification",
+        ),
+        expected_default_sink=_required_string(
+            pulseaudio_data.get("expected_default_sink", "alsa_output.headphones.stereo-fallback"),
+            "pulseaudio.expected_default_sink",
+        ),
+        expected_default_source=_required_string(
+            pulseaudio_data.get("expected_default_source", "alsa_output.headphones.stereo-fallback.monitor"),
+            "pulseaudio.expected_default_source",
+        ),
+    )
+
     web_data = _mapping(root.get("web_ui"), "web_ui")
     web_endpoints: list[WebUIEndpoint] = []
     for index, item in enumerate(_as_list(web_data.get("endpoints"), "web_ui.endpoints")):
@@ -429,6 +509,14 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
             selectors=tuple(str(selector) for selector in _as_list(data.get("selectors"), f"web_ui.endpoints[{index}].selectors")),
             interactions=tuple(_mapping(action, f"web_ui.endpoints[{index}].interactions") for action in _as_list(data.get("interactions"), f"web_ui.endpoints[{index}].interactions")),
             screenshot_on_failure=_bool(data.get("screenshot_on_failure"), f"web_ui.endpoints[{index}].screenshot_on_failure", True),
+            screenshot_on_success=_bool(data.get("screenshot_on_success"), f"web_ui.endpoints[{index}].screenshot_on_success", False),
+            ignore_console_errors=tuple(
+                str(pattern)
+                for pattern in _as_list(
+                    data.get("ignore_console_errors"),
+                    f"web_ui.endpoints[{index}].ignore_console_errors",
+                )
+            ),
         ))
     web_ui = WebUISettings(
         enabled=_bool(web_data.get("enabled"), "web_ui.enabled", False),
@@ -446,6 +534,8 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         services=tuple(services),
         http=http,
         mpd=mpd,
+        snapcast=snapcast,
+        pulseaudio=pulseaudio,
         web_ui=web_ui,
     )
 
@@ -583,8 +673,14 @@ def request_endpoint(session: requests.Session, config: AcceptanceConfig, endpoi
     elif auth.basic_username_env or auth.basic_password_env:
         if not auth.basic_username_env or not auth.basic_password_env:
             raise ConfigError(f"endpoint {endpoint.name} requires both basic auth environment variables")
-        username = os.environ.get(auth.basic_username_env)
-        password = os.environ.get(auth.basic_password_env)
+        username = os.environ.get(
+            auth.basic_username_env,
+            _TRANSMISSION_TEST_DEFAULTS.get(auth.basic_username_env),
+        )
+        password = os.environ.get(
+            auth.basic_password_env,
+            _TRANSMISSION_TEST_DEFAULTS.get(auth.basic_password_env),
+        )
         if username is None or password is None:
             raise ConfigError(f"basic auth environment variables are missing for endpoint {endpoint.name}")
         request_auth = HTTPBasicAuth(username, password)

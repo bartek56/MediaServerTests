@@ -18,6 +18,8 @@ connectivity:
       port: 22
     - name: HTTP
       port: 80
+    - name: PulseAudio TCP
+      port: 4713
 
 system:
   # Missing diagnostic tools are reported as skipped checks, not as a broken
@@ -49,6 +51,21 @@ services:
   #   manager: systemd
   #   expected_state: active
   #   ports: [{name: MediaServer web, port: 80}]
+
+snapcast:
+  http_port: 1780
+  expected_stream: MPD
+  expected_source_path: /tmp/snapmpdfifo
+  bluetooth_stream: Bluetooth
+
+pulseaudio:
+  tcp_port: 4713
+  expected_protocol_version: "35"
+  expected_user_name: pulse
+  expected_server_name: pulseaudio
+  expected_sample_specification: s16le 2ch 44100Hz
+  expected_default_sink: alsa_output.headphones.stereo-fallback
+  expected_default_source: alsa_output.headphones.stereo-fallback.monitor
 
 http:
   timeout: 10

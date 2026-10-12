@@ -58,6 +58,19 @@ afterwards. An MPD connection or a successful `mpc play` command alone is not
 enough for this check to pass; audio-output errors and a paused/stopped state
 are failures.
 
+The `snapcast` section configures the MPD routing check. The test reads
+`default_source` or the source order from `/etc/snapserver.conf`, queries
+Snapserver's HTTP JSON-RPC endpoint, verifies that the MPD stream uses
+`/tmp/snapmpdfifo`, and checks
+that the connected Snapclient on the Raspberry Pi is assigned to `MPD`, not
+the `Bluetooth` stream.
+
+The `pulseaudio` section configures the TCP PulseAudio check. It runs
+`pactl -s tcp:<device>:4713 info` on the Ubuntu test computer and verifies the
+remote server, protocol version, user, sample specification and default sink
+and source. Install `pactl` with `sudo apt install pulseaudio-utils` if it is
+not present.
+
 Before the first test, verify the Raspberry Pi 4 host fingerprint through a
 trusted channel and then add that host key to the Ubuntu user's
 `~/.ssh/known_hosts`. The framework uses Paramiko's rejecting host-key policy:
@@ -74,6 +87,16 @@ ssh-keygen -F 192.0.2.10
 Do not commit the private key, passwords, tokens or the local configuration.
 For authenticated HTTP endpoints use environment variables, for example
 `RPI4_API_TOKEN`, referenced by `bearer_token_env` in the YAML.
+The Transmission Web UI check uses the development credentials
+`transmission`/`transmission` by default. Explicit environment values override
+these defaults:
+
+```bash
+export TRANSMISSION_RPC_USERNAME=transmission
+export TRANSMISSION_RPC_PASSWORD='your-transmission-password'
+```
+
+The credentials are never stored in the YAML or written to the test log.
 
 ## Running tests
 
@@ -87,6 +110,7 @@ pytest --config config/test.yaml tests/test_system.py
 pytest --config config/test.yaml tests/test_services.py
 pytest --config config/test.yaml tests/test_http.py
 pytest --config config/test.yaml tests/test_base_applications.py
+pytest --config config/test.yaml tests/test_snapcast.py
 pytest --config config/test.yaml tests/test_web_ui.py
 ```
 
@@ -152,6 +176,11 @@ and environment-backed Bearer/basic authentication. Request headers shared by
 the configured endpoints belong under `http.headers` or `http.headers_from_env`.
 The MPD/MPC playback check runs `mpc` over the existing SSH connection and
 therefore validates the complete playback path on the Raspberry Pi 4.
+Transmission is checked separately through its RPC endpoint and web interface.
+The web-interface check uses Basic Auth from `TRANSMISSION_RPC_USERNAME` and
+`TRANSMISSION_RPC_PASSWORD`, requires HTTP 200, Transmission content and rejects
+the broken-page response containing `Couldn't find Transmission's web
+interface files!`.
 
 ## Troubleshooting
 

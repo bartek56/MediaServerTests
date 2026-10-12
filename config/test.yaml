@@ -20,6 +20,7 @@ connectivity:
       port: 80
     - {name: FileBrowser, port: 8090}
     - {name: MPD, port: 6600}
+    - {name: PulseAudio TCP, port: 4713}
     - {name: MiniDLNA, port: 8200}
     - {name: Jellyfin, port: 8096}
     - {name: Transmission RPC, port: 9091}
@@ -62,6 +63,21 @@ mpd:
   startup_timeout: 8
   poll_interval: 0.5
 
+snapcast:
+  http_port: 1780
+  expected_stream: MPD
+  expected_source_path: /tmp/snapmpdfifo
+  bluetooth_stream: Bluetooth
+
+pulseaudio:
+  tcp_port: 4713
+  expected_protocol_version: "35"
+  expected_user_name: pulse
+  expected_server_name: pulseaudio
+  expected_sample_specification: s16le 2ch 44100Hz
+  expected_default_sink: alsa_output.headphones.stereo-fallback
+  expected_default_source: alsa_output.headphones.stereo-fallback.monitor
+
 http:
   timeout: 10
   verify_tls: true
@@ -90,6 +106,13 @@ http:
       url: http://192.168.1.211:9091/transmission/rpc
       expected_status: [401, 403, 409]
       follow_redirects: false
+    - name: Transmission web UI
+      url: http://192.168.1.211:9091/transmission/web/
+      expected_status: [200]
+      follow_redirects: true
+      auth:
+        basic_username_env: TRANSMISSION_RPC_USERNAME
+        basic_password_env: TRANSMISSION_RPC_PASSWORD
     - name: Snapcast web
       url: http://192.168.1.211:1780/
       expected_status: [200]
@@ -100,7 +123,7 @@ http:
   #   auth: {bearer_token_env: RPI4_API_TOKEN}
 
 web_ui:
-  enabled: false
+  enabled: true
   headless: true
   fail_on_console_errors: true
   screenshot_dir: reports/screenshots
@@ -110,3 +133,26 @@ web_ui:
       selectors: ["body"]
       interactions: []
       screenshot_on_failure: true
+      screenshot_on_success: true
+    - name: YMPD
+      url: http://192.168.1.211:8080/
+      selectors: ["body", ".starter-template"]
+      interactions: []
+      screenshot_on_success: true
+      ignore_console_errors:
+        - "Cannot read properties of undefined (reading 'pos')"
+    - name: FileBrowser
+      url: http://192.168.1.211:8090/
+      selectors: ["body", "#app"]
+      interactions: []
+      screenshot_on_success: true
+    - name: Jellyfin
+      url: http://192.168.1.211:8096/
+      selectors: ["body", "#reactRoot"]
+      interactions: []
+      screenshot_on_success: true
+    - name: YouTubeDL
+      url: http://192.168.1.211/youtubedl/
+      selectors: ["body", ".container-fluid"]
+      interactions: []
+      screenshot_on_success: true

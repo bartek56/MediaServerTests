@@ -5,12 +5,14 @@ from __future__ import annotations
 import socket
 import logging
 import re
+import shutil
+import subprocess
 import time
 
 import pytest
 import requests
 
-from conftest import AcceptanceConfig, SSHConnection, redact, request_endpoint
+from conftest import AcceptanceConfig, ConfigError, SSHConnection, redact, request_endpoint
 
 
 pytestmark = pytest.mark.acceptance
@@ -137,6 +139,55 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
                 LOGGER.warning("mpc cleanup remove failed: %s", redact(remove.stderr.strip()))
 
 
+def _parse_pactl_info(output: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        fields[key.strip()] = value.strip()
+    return fields
+
+
+def test_pulseaudio_tcp_info(test_config: AcceptanceConfig) -> None:
+    """Verify the remote PulseAudio TCP server and its default audio route."""
+
+    pactl = shutil.which("pactl")
+    if pactl is None:
+        pytest.fail("pactl is not installed on the Ubuntu test computer; install pulseaudio-utils")
+
+    settings = test_config.pulseaudio
+    server = f"tcp:{test_config.ssh.host}:{settings.tcp_port}"
+    try:
+        result = subprocess.run(
+            [pactl, "-s", server, "info"],
+            capture_output=True,
+            text=True,
+            timeout=test_config.ssh.connect_timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"pactl timed out while connecting to PulseAudio server {server}")
+    output = result.stdout.strip()
+    fields = _parse_pactl_info(output)
+    log_fields = {key: value for key, value in fields.items() if key != "Cookie"}
+    LOGGER.info("PulseAudio TCP result: server=%s returncode=%s fields=%s", server, result.returncode, log_fields)
+
+    assert result.returncode == 0, (
+        f"pactl could not connect to {server}: "
+        f"{redact(result.stderr.strip() or output)}"
+    )
+    assert fields.get("Server String") == server, fields
+    assert fields.get("Library Protocol Version") == settings.expected_protocol_version, fields
+    assert fields.get("Server Protocol Version") == settings.expected_protocol_version, fields
+    assert fields.get("Is Local") == "no", fields
+    assert fields.get("User Name") == settings.expected_user_name, fields
+    assert fields.get("Server Name") == settings.expected_server_name, fields
+    assert fields.get("Default Sample Specification") == settings.expected_sample_specification, fields
+    assert fields.get("Default Sink") == settings.expected_default_sink, fields
+    assert fields.get("Default Source") == settings.expected_default_source, fields
+
+
 def test_transmission_rpc_probe(test_config: AcceptanceConfig, http_session: requests.Session) -> None:
     endpoint = next((item for item in test_config.http.endpoints if item.name.startswith("Transmission RPC")), None)
     if endpoint is None:
@@ -150,3 +201,48 @@ def test_transmission_rpc_probe(test_config: AcceptanceConfig, http_session: req
         assert response.headers.get("X-Transmission-Session-Id"), (
             "Transmission RPC did not return a session id for the unauthenticated handshake"
         )
+
+
+def test_transmission_web_assets(ssh_client: SSHConnection) -> None:
+    result = ssh_client.run([
+        "sh",
+        "-c",
+        "find /usr/share/transmission -type f -name index.html -print 2>/dev/null",
+    ])
+    assets = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    LOGGER.info("Transmission web assets result: index_html=%s paths=%s", len(assets), assets)
+    assert assets, (
+        "Transmission web UI assets are missing on the target: "
+        "no index.html was found below /usr/share/transmission"
+    )
+
+
+def test_transmission_web_ui(test_config: AcceptanceConfig, http_session: requests.Session) -> None:
+    endpoint = next((item for item in test_config.http.endpoints if item.name == "Transmission web UI"), None)
+    if endpoint is None:
+        pytest.skip("Transmission web UI endpoint is not configured")
+
+    try:
+        response = request_endpoint(http_session, test_config, endpoint)
+    except ConfigError as exc:
+        pytest.fail(f"Transmission web UI authentication is not configured: {exc}")
+    except requests.exceptions.RequestException as exc:
+        pytest.fail(f"Transmission web UI is unreachable: {redact(str(exc))}")
+
+    body = response.text
+    missing_files_error = "Couldn't find Transmission's web interface files!"
+    LOGGER.info(
+        "Transmission web UI result: status=%s url=%s content_length=%s missing_files_error=%s",
+        response.status_code,
+        endpoint.url,
+        len(body),
+        missing_files_error in body,
+    )
+    assert response.status_code == 200, (
+        f"Transmission web UI returned HTTP {response.status_code}; expected 200"
+    )
+    assert missing_files_error not in body, (
+        "Transmission web UI is not installed/configured: "
+        "the response reports missing Transmission web interface files"
+    )
+    assert "transmission" in body.lower(), "Transmission web UI response does not contain Transmission content"
