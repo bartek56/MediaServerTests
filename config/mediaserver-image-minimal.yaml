@@ -1,0 +1,52 @@
+# Profile for mediaserver-image-minimal.
+# Copy to config/test.yaml for a local run and set key_path to a private key
+# already authorized for root on the development Raspberry Pi 4.
+
+profile: mediaserver-image-minimal
+
+device:
+  name: mediaserver-minimal
+  host: 192.168.1.211
+  ssh:
+    port: 22
+    username: root
+    known_hosts: ~/.ssh/known_hosts
+    connect_timeout: 10
+    command_timeout: 30
+    # Development image only: the root account has an empty password.
+    # Prefer key_path for non-development devices.
+    allow_empty_password: true
+
+connectivity:
+  tcp_ports:
+    - {name: SSH, port: 22}
+    - {name: PulseAudio TCP, port: 4713}
+
+system:
+  required_commands: [uname, cat, df]
+  filesystems:
+    - {path: /, min_free_mb: 256}
+  min_available_memory_mb: 64
+  max_memory_used_percent: 90
+
+services:
+  - {name: snapclient.service, manager: systemd, required: true, diagnostics: true}
+  - {name: pulseaudio.service, manager: systemd, required: true, diagnostics: true, ports: [{name: PulseAudio TCP, port: 4713}]}
+
+pulseaudio:
+  tcp_port: 4713
+  expected_protocol_version: "35"
+  expected_user_name: pulse
+  expected_server_name: pulseaudio
+  expected_sample_specification: s16le 2ch 44100Hz
+  expected_default_sink: alsa_output.headphones.stereo-fallback
+  expected_default_source: alsa_output.headphones.stereo-fallback.monitor
+
+# The minimal image has no MediaServer web UI, HTTP services, MPD or
+# Snapserver. Snapweb is installed for the image contract, but its assets are
+# checked over SSH because this image does not run Snapserver.
+web_ui:
+  enabled: false
+  headless: true
+  fail_on_console_errors: true
+  endpoints: []

@@ -108,7 +108,7 @@ http:
     - name: Snapcast web
       url: http://192.168.1.211:1780/
       expected_status: [200]
-      required: false
+      required: true
   # Add response header expectations under an endpoint's `headers` map.
 
 web_ui:

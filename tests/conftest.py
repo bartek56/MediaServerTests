@@ -201,6 +201,8 @@ TEST_DESCRIPTIONS = {
     "test_mpd_protocol_smoke": "Checks that MPD accepts a TCP connection and returns an MPD greeting.",
     "test_mpd_mpc_playback": "Adds all tracks from the MPD database with mpc, plays the first one and verifies advancing playback.",
     "test_snapclient_defaults_to_mpd_stream": "Checks Snapserver configuration and runtime client routing: the RPi snapclient must use MPD, not Bluetooth.",
+    "test_snapweb_sources": "Checks that the Snapweb page sources are installed in the Snapcast document root.",
+    "test_snapweb_http_endpoint": "Checks that Snapserver serves the installed Snapweb HTML entrypoint.",
     "test_pulseaudio_tcp_info": "Checks the PulseAudio TCP server through pactl and verifies its negotiated server and default audio settings.",
     "test_transmission_rpc_probe": "Checks that the Transmission RPC endpoint responds to an unauthenticated probe.",
     "test_transmission_web_assets": "Checks over SSH that the Transmission web UI includes an index.html asset on the target.",
