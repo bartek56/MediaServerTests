@@ -142,10 +142,10 @@ the properties `checked`, `result` and `duration_ms` for every test. HTTP
 checks additionally record each endpoint name, sanitized URL, returned
 status, expected statuses and elapsed time.
 
-The report contains the configured device name, start time, test result and
-failure details. Request credentials and common secret-shaped diagnostic
-values are redacted; do not configure sensitive response fragments or place
-secrets in endpoint URLs.
+The report contains the configured device name, target `/etc/mediaserver/build-info`,
+start time, test result and failure details. Request credentials and common
+secret-shaped diagnostic values are redacted; do not configure sensitive
+response fragments or place secrets in endpoint URLs.
 
 ## Optional browser checks
 

@@ -226,6 +226,7 @@ TEST_DESCRIPTIONS = {
     "test_http_request_uses_environment_token_without_exposing_it": "Checks environment-backed HTTP bearer authentication handling.",
 }
 _HTML_HEADER_ADDED = False
+_TARGET_BUILD_INFO = "unavailable"
 _TRANSMISSION_TEST_DEFAULTS = {
     "TRANSMISSION_RPC_USERNAME": "transmission",
     "TRANSMISSION_RPC_PASSWORD": "transmission",
@@ -742,6 +743,7 @@ def pytest_configure(config: pytest.Config) -> None:
         metadata["test framework"] = "Raspberry Pi 4 acceptance tests"
         metadata["test started"] = datetime.now(timezone.utc).isoformat()
         metadata["device"] = os.environ.get("RPI4_DEVICE_NAME", "configured Raspberry Pi 4")
+        metadata["target build-info"] = _TARGET_BUILD_INFO
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -821,12 +823,30 @@ def test_config(pytestconfig: pytest.Config) -> AcceptanceConfig:
 
 
 @pytest.fixture(scope="session")
-def ssh_client(test_config: AcceptanceConfig) -> Iterator[SSHConnection]:
+def ssh_client(test_config: AcceptanceConfig, pytestconfig: pytest.Config) -> Iterator[SSHConnection]:
+    global _TARGET_BUILD_INFO
     connection = SSHConnection(test_config.ssh)
     try:
         connection.connect()
     except SSHError as exc:
         pytest.skip(f"SSH-dependent check skipped: {redact(str(exc))}")
+    try:
+        build_info = connection.run(["cat", "/etc/mediaserver/build-info"])
+    except SSHError as exc:
+        _TARGET_BUILD_INFO = f"unavailable ({redact(str(exc))})"
+    else:
+        if build_info.returncode == 0 and build_info.stdout.strip():
+            _TARGET_BUILD_INFO = redact(build_info.stdout.strip())
+        else:
+            _TARGET_BUILD_INFO = "unavailable (missing /etc/mediaserver/build-info)"
+            logging.getLogger("acceptance").warning(
+                "TARGET BUILD-INFO unavailable: %s",
+                redact(build_info.stderr.strip() or build_info.stdout.strip()),
+            )
+    logging.getLogger("acceptance").info("TARGET BUILD-INFO: %s", _TARGET_BUILD_INFO)
+    metadata = getattr(pytestconfig, "_metadata", None)
+    if metadata is not None:
+        metadata["target build-info"] = _TARGET_BUILD_INFO
     try:
         yield connection
     finally:
@@ -848,4 +868,7 @@ def socket_connector():
 
 
 def pytest_html_results_summary(prefix, summary, postfix) -> None:  # pragma: no cover - optional plugin callback
-    prefix.extend(["<p>Test runner: Ubuntu host; target: Raspberry Pi 4.</p>"])
+    prefix.extend([
+        "<p>Test runner: Ubuntu host; target: Raspberry Pi 4.</p>",
+        f"<p>Target build-info: {escape(_TARGET_BUILD_INFO)}</p>",
+    ])
