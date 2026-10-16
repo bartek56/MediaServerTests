@@ -45,6 +45,27 @@ connectivity:
     assert config.ssh.port == 2200
 
 
+def test_http_endpoints_use_configured_device_host(tmp_path: Path) -> None:
+    config_file = tmp_path / "test.yaml"
+    config_file.write_text(
+        """
+device:
+  host: 192.0.2.10
+  ssh: {username: tester, key_path: /tmp/test-key}
+http:
+  endpoints:
+    - {name: api, protocol: https, port: 8443, path: /api/health}
+web_ui:
+  endpoints:
+    - {name: ui, protocol: http, port: 8080, path: /}
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_file, {"RPI4_HOST": "192.0.2.11"})
+    assert config.http.endpoints[0].url == "https://192.0.2.11:8443/api/health"
+    assert config.web_ui.endpoints[0].url == "http://192.0.2.11:8080/"
+
+
 def test_load_config_rejects_inline_credentials(tmp_path: Path) -> None:
     config_file = tmp_path / "test.yaml"
     config_file.write_text(

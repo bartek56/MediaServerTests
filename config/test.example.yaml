@@ -75,20 +75,26 @@ http:
   #   X-Test-Run: RPI4_TEST_RUN_ID
   endpoints:
     - name: MediaServer web page
-      url: http://192.0.2.10/
+      protocol: http
+      port: 80
+      path: /
       expected_status: [200]
       follow_redirects: true
       content_type: text/html
       contains: ["MediaServer"]
     - name: Example JSON API
-      url: http://192.0.2.10/api/health
+      protocol: http
+      port: 80
+      path: /api/health
       expected_status: [200]
       content_type: application/json
       json_fields:
         status: ok
   # Endpoint authentication is environment-only, for example:
   # - name: Protected API
-  #   url: https://192.0.2.10/api/private
+  #   protocol: https
+  #   port: 443
+  #   path: /api/private
   #   auth: {bearer_token_env: RPI4_API_TOKEN}
 
 web_ui:
@@ -98,7 +104,9 @@ web_ui:
   screenshot_dir: reports/screenshots
   endpoints:
     - name: MediaServer home
-      url: http://192.0.2.10/
+      protocol: http
+      port: 80
+      path: /
       selectors: ["body"]
       interactions: []
       screenshot_on_failure: true

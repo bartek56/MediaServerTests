@@ -114,6 +114,9 @@ pytest --config config/test.yaml tests/test_snapcast.py
 pytest --config config/test.yaml tests/test_web_ui.py
 ```
 
+Test execution does not stop after the first failure; all collected tests are
+run and the command still returns a failure status when any test fails.
+
 The unit tests do not need a physical device:
 
 ```bash
@@ -174,6 +177,8 @@ on the device. HTTP checks support expected statuses, redirects, content type,
 content fragments, response headers (the endpoint `headers` map), JSON fields
 and environment-backed Bearer/basic authentication. Request headers shared by
 the configured endpoints belong under `http.headers` or `http.headers_from_env`.
+HTTP and browser endpoints are configured with `protocol`, `port` and `path`;
+their host is always taken from `device.host` (or the `RPI4_HOST` override).
 The MPD/MPC playback check runs `mpc` over the existing SSH connection and
 therefore validates the complete playback path on the Raspberry Pi 4.
 Transmission is checked separately through its RPC endpoint and web interface.

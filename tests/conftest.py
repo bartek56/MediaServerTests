@@ -317,10 +317,45 @@ def _auth_settings(value: Any, label: str) -> AuthSettings:
     )
 
 
-def _endpoint(value: Any, label: str, default_timeout: float, verify_tls: bool) -> HTTPEndpoint:
+def _target_url(data: Mapping[str, Any], label: str, default_host: str) -> str:
+    """Build an endpoint URL from the device host, protocol, port and path.
+
+    The legacy ``url`` form remains accepted for compatibility, but its host
+    is replaced with the configured device host so endpoint checks cannot
+    silently target a different machine.
+    """
+
+    legacy_url = data.get("url")
+    if legacy_url is not None:
+        parsed = urlsplit(_required_string(legacy_url, f"{label}.url"))
+        protocol = parsed.scheme.lower()
+        if protocol not in {"http", "https"} or not parsed.hostname:
+            raise ConfigError(f"{label}.url must use http or https and include a host")
+        port = parsed.port or (443 if protocol == "https" else 80)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += f"?{parsed.query}"
+    else:
+        protocol = _required_string(data.get("protocol"), f"{label}.protocol").lower()
+        if protocol not in {"http", "https"}:
+            raise ConfigError(f"{label}.protocol must be http or https")
+        port = int(_number(data.get("port", 443 if protocol == "https" else 80),
+                           f"{label}.port", integer=True))
+        path = str(data.get("path", "/"))
+        if not path.startswith("/"):
+            raise ConfigError(f"{label}.path must start with '/'")
+
+    if not 1 <= port <= 65535:
+        raise ConfigError(f"{label}.port must be between 1 and 65535")
+    host = default_host
+    authority_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return urlunsplit((protocol, f"{authority_host}:{port}", path, "", ""))
+
+
+def _endpoint(value: Any, label: str, default_timeout: float, verify_tls: bool, default_host: str) -> HTTPEndpoint:
     data = _mapping(value, label)
     name = _required_string(data.get("name"), f"{label}.name")
-    url = _required_string(data.get("url"), f"{label}.url")
+    url = _target_url(data, label, default_host)
     statuses = data.get("expected_status", [200])
     statuses = [statuses] if isinstance(statuses, int) else _as_list(statuses, f"{label}.expected_status")
     expected_status = tuple(int(status) for status in statuses)
@@ -443,7 +478,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
     http = HTTPSettings(
         headers={str(key): str(val) for key, val in http_headers.items()},
         headers_from_env={str(key): _required_string(val, f"http.headers_from_env.{key}") for key, val in header_env.items()},
-        endpoints=tuple(_endpoint(item, f"http.endpoints[{index}]", http_timeout, http_verify)
+        endpoints=tuple(_endpoint(item, f"http.endpoints[{index}]", http_timeout, http_verify, ssh.host)
                         for index, item in enumerate(_as_list(http_data.get("endpoints"), "http.endpoints"))),
     )
 
@@ -508,7 +543,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         data = _mapping(item, f"web_ui.endpoints[{index}]")
         web_endpoints.append(WebUIEndpoint(
             name=_required_string(data.get("name"), f"web_ui.endpoints[{index}].name"),
-            url=_required_string(data.get("url"), f"web_ui.endpoints[{index}].url"),
+            url=_target_url(data, f"web_ui.endpoints[{index}]", ssh.host),
             selectors=tuple(str(selector) for selector in _as_list(data.get("selectors"), f"web_ui.endpoints[{index}].selectors")),
             interactions=tuple(_mapping(action, f"web_ui.endpoints[{index}].interactions") for action in _as_list(data.get("interactions"), f"web_ui.endpoints[{index}].interactions")),
             screenshot_on_failure=_bool(data.get("screenshot_on_failure"), f"web_ui.endpoints[{index}].screenshot_on_failure", True),

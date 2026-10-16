@@ -79,34 +79,48 @@ http:
   verify_tls: true
   endpoints:
     - name: Apache root
-      url: http://192.168.1.211/
+      protocol: http
+      port: 80
+      path: /
       expected_status: [200, 403]
       follow_redirects: true
     - name: FileBrowser
-      url: http://192.168.1.211:8090/
+      protocol: http
+      port: 8090
+      path: /
       expected_status: [200, 302, 401]
       follow_redirects: false
     - name: MiniDLNA status
-      url: http://192.168.1.211:8200/
+      protocol: http
+      port: 8200
+      path: /
       expected_status: [200]
       content_type: text/html
     - name: Jellyfin web
-      url: http://192.168.1.211:8096/
+      protocol: http
+      port: 8096
+      path: /
       expected_status: [200, 302]
       follow_redirects: true
     - name: Transmission RPC unauthenticated probe
-      url: http://192.168.1.211:9091/transmission/rpc
+      protocol: http
+      port: 9091
+      path: /transmission/rpc
       expected_status: [401, 403, 409]
       follow_redirects: false
     - name: Transmission web UI
-      url: http://192.168.1.211:9091/transmission/web/
+      protocol: http
+      port: 9091
+      path: /transmission/web/
       expected_status: [200]
       follow_redirects: true
       auth:
         basic_username_env: TRANSMISSION_RPC_USERNAME
         basic_password_env: TRANSMISSION_RPC_PASSWORD
     - name: Snapcast web
-      url: http://192.168.1.211:1780/
+      protocol: http
+      port: 1780
+      path: /
       expected_status: [200]
       required: true
   # Add response header expectations under an endpoint's `headers` map.
@@ -117,13 +131,17 @@ web_ui:
   fail_on_console_errors: true
   endpoints:
     - name: MediaServer
-      url: http://192.168.1.211/
+      protocol: http
+      port: 80
+      path: /
       selectors:
         - body
       interactions: []
       screenshot_on_success: true
     - name: YMPD
-      url: http://192.168.1.211:8080/
+      protocol: http
+      port: 8080
+      path: /
       selectors:
         - body
         - .starter-template
@@ -132,28 +150,36 @@ web_ui:
       ignore_console_errors:
         - "Cannot read properties of undefined (reading 'pos')"
     - name: FileBrowser
-      url: http://192.168.1.211:8090/
+      protocol: http
+      port: 8090
+      path: /
       selectors:
         - body
         - '#app'
       interactions: []
       screenshot_on_success: true
     - name: Jellyfin
-      url: http://192.168.1.211:8096/
+      protocol: http
+      port: 8096
+      path: /
       selectors:
         - body
         - '#reactRoot'
       interactions: []
       screenshot_on_success: true
     - name: YouTubeDL
-      url: http://192.168.1.211/youtubedl/
+      protocol: http
+      port: 80
+      path: /youtubedl/
       selectors:
         - body
         - .container-fluid
       interactions: []
       screenshot_on_success: true
     - name: Snapcast
-      url: http://192.168.1.211:1780
+      protocol: http
+      port: 1780
+      path: /
       selectors:
         - body
       interactions: []
