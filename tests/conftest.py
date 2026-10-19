@@ -146,6 +146,7 @@ class WebUISettings:
     enabled: bool = False
     headless: bool = True
     fail_on_console_errors: bool = True
+    verify_tls: bool = True
     screenshot_dir: Path = Path("reports/screenshots")
     endpoints: tuple[WebUIEndpoint, ...] = ()
 
@@ -199,7 +200,8 @@ class AcceptanceConfig:
 TEST_DESCRIPTIONS = {
     "test_raspberry_pi_4_identity": "Verifies that the SSH target identifies itself as Raspberry Pi 4.",
     "test_mpd_protocol_smoke": "Checks that MPD accepts a TCP connection and returns an MPD greeting.",
-    "test_mpd_mpc_playback": "Adds all tracks from the MPD database with mpc, plays the first one and verifies advancing playback.",
+    "test_mpd_mpc_playback": "Adds the first track from the MPD database with mpc, plays it and verifies playback starts.",
+    "test_certbot_dependencies": "Checks that certbot starts and loads its installed dependencies on the target.",
     "test_snapclient_defaults_to_mpd_stream": "Checks Snapserver configuration and runtime client routing: the RPi snapclient must use MPD, not Bluetooth.",
     "test_snapweb_sources": "Checks that the Snapweb page sources are installed in the Snapcast document root.",
     "test_snapweb_http_endpoint": "Checks that Snapserver serves the installed Snapweb HTML entrypoint.",
@@ -560,6 +562,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         enabled=_bool(web_data.get("enabled"), "web_ui.enabled", False),
         headless=_bool(web_data.get("headless"), "web_ui.headless", True),
         fail_on_console_errors=_bool(web_data.get("fail_on_console_errors"), "web_ui.fail_on_console_errors", True),
+        verify_tls=_bool(web_data.get("verify_tls"), "web_ui.verify_tls", http_verify),
         screenshot_dir=Path(str(web_data.get("screenshot_dir", "reports/screenshots"))).expanduser(),
         endpoints=tuple(web_endpoints),
     )

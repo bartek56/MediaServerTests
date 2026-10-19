@@ -33,7 +33,7 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=settings.headless)
-        context = browser.new_context()
+        context = browser.new_context(ignore_https_errors=not settings.verify_tls)
         page = context.new_page()
         console_errors: list[str] = []
 

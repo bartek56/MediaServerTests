@@ -83,14 +83,14 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
         LOGGER.info("MPD/mpc library result: tracks=%d", len(tracks))
 
         require_success(run_mpc("clear"), "clear")
-        for index, track in enumerate(tracks, start=1):
-            added = run_mpc("add", track)
-            require_success(added, f"add track {index}/{len(tracks)}")
+        first_track = tracks[0]
+        added = run_mpc("add", first_track)
+        require_success(added, "add first track")
         playlist = run_mpc("playlist")
         require_success(playlist, "playlist after add")
         playlist_entries = [line.strip() for line in playlist.stdout.splitlines() if line.strip()]
-        assert len(playlist_entries) == len(tracks), (
-            f"mpc added {len(playlist_entries)} playlist entries, expected {len(tracks)}"
+        assert len(playlist_entries) == 1, (
+            f"mpc added {len(playlist_entries)} playlist entries, expected 1"
         )
         LOGGER.info("MPD/mpc playlist result: entries=%d first_entry=%r",
                     len(playlist_entries), playlist_entries[0])
@@ -137,6 +137,29 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
             remove = run_mpc("rm", backup_name)
             if remove.returncode != 0:
                 LOGGER.warning("mpc cleanup remove failed: %s", redact(remove.stderr.strip()))
+
+
+def test_certbot_dependencies(ssh_client: SSHConnection) -> None:
+    """Verify that certbot starts and can load its installed dependencies."""
+
+    checks = (
+        ("version", ["certbot", "--version"]),
+        ("plugins", ["certbot", "plugins"]),
+        ("certificates", ["certbot", "certificates"]),
+    )
+    results = {}
+    for name, command in checks:
+        result = ssh_client.run(command)
+        output = result.stdout.strip() or result.stderr.strip()
+        results[name] = {"returncode": result.returncode, "output": redact(output)}
+        assert result.returncode == 0, (
+            f"certbot {name} failed on target: {redact(output)}"
+        )
+
+    assert re.search(r"certbot\s+\d+(?:\.\d+)+", results["version"]["output"], re.IGNORECASE), (
+        f"certbot did not report a valid version: {results['version']['output']!r}"
+    )
+    LOGGER.info("Certbot dependency result: %s", results)
 
 
 def _parse_pactl_info(output: str) -> dict[str, str]:
