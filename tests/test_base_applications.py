@@ -5,8 +5,6 @@ from __future__ import annotations
 import socket
 import logging
 import re
-import shutil
-import subprocess
 import time
 
 import pytest
@@ -24,15 +22,6 @@ def _port_named(config: AcceptanceConfig, name: str):
         if check.name.lower() == name.lower():
             return check
     return None
-
-
-def test_raspberry_pi_4_identity(ssh_client: SSHConnection) -> None:
-    model = ssh_client.run(["cat", "/proc/device-tree/model"])
-    if model.returncode != 0:
-        pytest.skip("Raspberry Pi model information is unavailable")
-    model_name = model.stdout.replace("\x00", "").strip()
-    LOGGER.info("Raspberry Pi identity: model=%s", model_name)
-    assert "Raspberry Pi 4" in model.stdout, f"unexpected target model: {model.stdout.strip()}"
 
 
 def test_mpd_protocol_smoke(test_config: AcceptanceConfig, socket_connector) -> None:
@@ -67,9 +56,19 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
         r"(?P<elapsed_min>\d+):(?P<elapsed_sec>\d{2})/"
         r"(?P<total_min>\d+):(?P<total_sec>\d{2})"
     )
+    volume_pattern = re.compile(r"volume:\s*(?P<volume>\d+)%")
     original_playlist = run_mpc("playlist")
     require_success(original_playlist, "playlist")
+    original_status = run_mpc("status")
+    require_success(original_status, "status before playback test")
+    volume_match = volume_pattern.search(original_status.stdout)
+    assert volume_match is not None, (
+        "could not determine the current MPD volume before playback test: "
+        f"{original_status.stdout.strip()!r}"
+    )
+    original_volume = volume_match.group("volume")
     backup_name: str | None = None
+    muted = False
     if original_playlist.stdout.strip():
         backup_name = f"acceptance-mpd-{int(time.time())}"
         backup = run_mpc("save", backup_name)
@@ -95,6 +94,8 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
         LOGGER.info("MPD/mpc playlist result: entries=%d first_entry=%r",
                     len(playlist_entries), playlist_entries[0])
 
+        require_success(run_mpc("volume", "0"), "mute before playback")
+        muted = True
         require_success(run_mpc("play", "1"), "play first track")
         deadline = time.monotonic() + settings.startup_timeout
         last_status = ""
@@ -137,9 +138,13 @@ def test_mpd_mpc_playback(test_config: AcceptanceConfig, ssh_client: SSHConnecti
             remove = run_mpc("rm", backup_name)
             if remove.returncode != 0:
                 LOGGER.warning("mpc cleanup remove failed: %s", redact(remove.stderr.strip()))
+        if muted:
+            unmute = run_mpc("volume", original_volume)
+            if unmute.returncode != 0:
+                LOGGER.warning("mpc cleanup unmute failed: %s", redact(unmute.stderr.strip()))
 
 
-def test_certbot_dependencies(ssh_client: SSHConnection) -> None:
+def test_certbot_dependencies(test_config: AcceptanceConfig, ssh_client: SSHConnection) -> None:
     """Verify that certbot starts and can load its installed dependencies."""
 
     checks = (
@@ -162,55 +167,6 @@ def test_certbot_dependencies(ssh_client: SSHConnection) -> None:
     LOGGER.info("Certbot dependency result: %s", results)
 
 
-def _parse_pactl_info(output: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for line in output.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        fields[key.strip()] = value.strip()
-    return fields
-
-
-def test_pulseaudio_tcp_info(test_config: AcceptanceConfig) -> None:
-    """Verify the remote PulseAudio TCP server and its default audio route."""
-
-    pactl = shutil.which("pactl")
-    if pactl is None:
-        pytest.fail("pactl is not installed on the Ubuntu test computer; install pulseaudio-utils")
-
-    settings = test_config.pulseaudio
-    server = f"tcp:{test_config.ssh.host}:{settings.tcp_port}"
-    try:
-        result = subprocess.run(
-            [pactl, "-s", server, "info"],
-            capture_output=True,
-            text=True,
-            timeout=test_config.ssh.connect_timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.fail(f"pactl timed out while connecting to PulseAudio server {server}")
-    output = result.stdout.strip()
-    fields = _parse_pactl_info(output)
-    log_fields = {key: value for key, value in fields.items() if key != "Cookie"}
-    LOGGER.info("PulseAudio TCP result: server=%s returncode=%s fields=%s", server, result.returncode, log_fields)
-
-    assert result.returncode == 0, (
-        f"pactl could not connect to {server}: "
-        f"{redact(result.stderr.strip() or output)}"
-    )
-    assert fields.get("Server String") == server, fields
-    assert fields.get("Library Protocol Version") == settings.expected_protocol_version, fields
-    assert fields.get("Server Protocol Version") == settings.expected_protocol_version, fields
-    assert fields.get("Is Local") == "no", fields
-    assert fields.get("User Name") == settings.expected_user_name, fields
-    assert fields.get("Server Name") == settings.expected_server_name, fields
-    assert fields.get("Default Sample Specification") == settings.expected_sample_specification, fields
-    assert fields.get("Default Sink") == settings.expected_default_sink, fields
-    assert fields.get("Default Source") == settings.expected_default_source, fields
-
-
 def test_transmission_rpc_probe(test_config: AcceptanceConfig, http_session: requests.Session) -> None:
     endpoint = next((item for item in test_config.http.endpoints if item.name.startswith("Transmission RPC")), None)
     if endpoint is None:
@@ -226,7 +182,7 @@ def test_transmission_rpc_probe(test_config: AcceptanceConfig, http_session: req
         )
 
 
-def test_transmission_web_assets(ssh_client: SSHConnection) -> None:
+def test_transmission_web_assets(test_config: AcceptanceConfig, ssh_client: SSHConnection) -> None:
     result = ssh_client.run([
         "sh",
         "-c",

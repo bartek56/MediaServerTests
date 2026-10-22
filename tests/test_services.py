@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import logging
+from textwrap import indent
 
 import pytest
 
@@ -33,15 +34,28 @@ def _diagnostics(ssh_client: SSHConnection, service: ServiceCheck) -> str:
         return ""
     output: list[str] = []
     if service.manager == "systemd":
-        for argv in (
-            ["systemctl", "status", "--no-pager", "--lines=30", service.name],
-            ["journalctl", "-u", service.name, "-n", "30", "--no-pager"],
-        ):
+        commands = (
+            ("systemd status", ["systemctl", "status", "--no-pager", "--lines=10", service.name]),
+            ("journal", ["journalctl", "-u", service.name, "-n", "30", "--no-pager"]),
+        )
+        for label, argv in commands:
             result = ssh_client.run(argv)
-            output.append(redact(result.stdout + result.stderr)[-4000:])
+            details = redact(result.stdout + result.stderr).strip() or "(no output)"
+            output.append(f"{label}:\n{indent(details[-4000:], '  ')}")
     ps = ssh_client.run(["ps", "-eo", "pid,comm,args", "--no-headers"])
-    output.append(redact(ps.stdout)[-2000:])
-    return "\n--- service diagnostics (truncated) ---\n" + "\n".join(output)
+    output.append(f"processes:\n{indent(redact(ps.stdout).strip()[-2000:], '  ')}")
+    return "\n\nDiagnostics (output truncated):\n" + "\n\n".join(output)
+
+
+def _service_failure(service: ServiceCheck, state: str, diagnostics: str) -> str:
+    return (
+        "service check failed\n"
+        f"  service: {service.name}\n"
+        f"  manager: {service.manager}\n"
+        f"  expected state: {service.expected_state}\n"
+        f"  actual state: {state}"
+        f"{diagnostics}"
+    )
 
 
 def test_configured_service_states(test_config: AcceptanceConfig, ssh_client: SSHConnection) -> None:
@@ -58,13 +72,14 @@ def test_configured_service_states(test_config: AcceptanceConfig, ssh_client: SS
         if service.expected_state == "active":
             if state != "active" and not service.required:
                 pytest.skip(f"optional service {service.name} is {state}")
-            assert state == "active", f"service {service.name} is {state}{_diagnostics(ssh_client, service)}"
+            assert state == "active", _service_failure(
+                service, state, _diagnostics(ssh_client, service)
+            )
         else:
             if state != service.expected_state and not service.required:
                 pytest.skip(f"optional service {service.name} is {state}")
-            assert state == service.expected_state, (
-                f"service {service.name} is {state}; expected {service.expected_state}"
-                f"{_diagnostics(ssh_client, service)}"
+            assert state == service.expected_state, _service_failure(
+                service, state, _diagnostics(ssh_client, service)
             )
 
 

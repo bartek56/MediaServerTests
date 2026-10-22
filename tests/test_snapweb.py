@@ -1,4 +1,4 @@
-"""Snapweb asset installation checks shared by the minimal and base images."""
+"""Snapweb checks for images that include Snapserver."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import logging
 
 import pytest
 
-from conftest import SSHConnection
+from conftest import AcceptanceConfig, SSHConnection
 
 
 pytestmark = pytest.mark.acceptance
 LOGGER = logging.getLogger(__name__)
 
 
-def test_snapweb_sources(ssh_client: SSHConnection) -> None:
+def test_snapweb_sources(test_config: AcceptanceConfig, ssh_client: SSHConnection) -> None:
     """Verify that the built Snapweb web assets are installed on the target."""
 
     result = ssh_client.run([
@@ -37,7 +37,7 @@ def test_snapweb_sources(ssh_client: SSHConnection) -> None:
     assert assets, "Snapweb asset directory is empty"
 
 
-def test_snapweb_http_endpoint(test_config, http_session) -> None:
+def test_snapweb_http_endpoint(test_config: AcceptanceConfig, http_session) -> None:
     """Verify the Snapcast HTTP server serves the installed Snapweb entrypoint."""
 
     endpoint = next(

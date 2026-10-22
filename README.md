@@ -1,20 +1,21 @@
-# Raspberry Pi 4 acceptance tests
+# Raspberry Pi 3/4 acceptance tests
 
 This is a host-side acceptance-test framework for the `meta-mediaserver`
-Yocto layer. Tests run on an Ubuntu test computer and inspect a Raspberry Pi 4
+Yocto layer. Tests run on an Ubuntu test computer and inspect a Raspberry Pi 3
+or Raspberry Pi 4
 over SSH, TCP and HTTP/HTTPS. Python, pytest and all test libraries are
 installed only in the Ubuntu environment; nothing is added to the Yocto image
-or installed on the Raspberry Pi 4.
+or installed on the target Raspberry Pi.
 
 The framework is intentionally independent of a particular image. Configure
 the services and endpoints that exist in the image being tested.
 
 ## Requirements
 
-- Ubuntu test computer with Python 3 and network access to the Raspberry Pi 4.
-- A booted Raspberry Pi 4 running the image under test.
+- Ubuntu test computer with Python 3 and network access to the Raspberry Pi 3 or 4.
+- A booted Raspberry Pi 3 or 4 running the image under test.
 - An SSH server on the device and a test user authorized with a private key.
-- `known_hosts` containing the verified Raspberry Pi 4 host key.
+- `known_hosts` containing the verified target host key.
 - Optional: Chromium dependencies if browser checks are enabled.
 
 The device does not need Python, pytest, Paramiko, requests, Playwright or any
@@ -33,9 +34,15 @@ python -m pip install -r requirements.txt
 cp config/test.example.yaml config/test.yaml
 ```
 
-Edit `config/test.yaml`. At minimum set `device.host`, the SSH username and
+Edit `config/test.yaml`. At minimum set `device.machine` (`rpi0`, `rpi3` or
+`rpi4`),
+`device.host`, the SSH username and
 either the path to a private key or an explicitly enabled development-only
 empty-password mode. The local configuration is ignored by Git.
+
+The optional `test_files` list selects which acceptance-test
+files pytest collects, for example `test_files: [test_system.py,
+test_snapcast.py]`.
 
 For the first supported application profile use:
 
@@ -71,7 +78,7 @@ remote server, protocol version, user, sample specification and default sink
 and source. Install `pactl` with `sudo apt install pulseaudio-utils` if it is
 not present.
 
-Before the first test, verify the Raspberry Pi 4 host fingerprint through a
+Before the first test, verify the target Raspberry Pi host fingerprint through a
 trusted channel and then add that host key to the Ubuntu user's
 `~/.ssh/known_hosts`. The framework uses Paramiko's rejecting host-key policy:
 it never accepts an unknown key automatically.
@@ -166,7 +173,7 @@ context are closed even when a check fails.
 
 ## What is checked
 
-System checks run commands on the Raspberry Pi 4 through SSH and can inspect
+System checks run commands on the target Raspberry Pi through SSH and can inspect
 systemd, SysV or process-based services, `/proc`, filesystems and bounded log
 tails. A missing optional diagnostic command is reported as a skipped control;
 it is not treated as proof that the device is broken.
@@ -180,7 +187,7 @@ the configured endpoints belong under `http.headers` or `http.headers_from_env`.
 HTTP and browser endpoints are configured with `protocol`, `port` and `path`;
 their host is always taken from `device.host` (or the `RPI4_HOST` override).
 The MPD/MPC playback check runs `mpc` over the existing SSH connection and
-therefore validates the complete playback path on the Raspberry Pi 4.
+therefore validates the complete playback path on the target Raspberry Pi.
 Transmission is checked separately through its RPC endpoint and web interface.
 The web-interface check uses Basic Auth from `TRANSMISSION_RPC_USERNAME` and
 `TRANSMISSION_RPC_PASSWORD`, requires HTTP 200, Transmission content and rejects

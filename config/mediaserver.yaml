@@ -7,6 +7,7 @@ profile: mediaserver-image-base
 
 device:
   name: mediaserver
+  machine: rpi4
   host: 192.168.1.5
   ssh:
     port: 22
@@ -15,6 +16,21 @@ device:
     key_path: ~/.ssh/id_rsa
     connect_timeout: 10
     command_timeout: 30
+    # Development image only: the root account has an empty password.
+    # Prefer key_path for non-development devices.
+    allow_empty_password: true
+
+test_files:
+  - test_core_applications.py
+  - test_base_applications.py
+  - test_connectivity.py
+  - test_bluetooth.py
+  - test_http.py
+  - test_services.py
+  - test_snapcast.py
+  - test_snapweb.py
+  - test_system.py
+  - test_web_ui.py
 
 connectivity:
   tcp_ports:
@@ -49,6 +65,7 @@ services:
   - {name: snapserver.service, manager: systemd, required: true, diagnostics: true}
   - {name: snapclient.service, manager: systemd, required: true, diagnostics: true}
   - {name: pulseaudio.service, manager: systemd, required: true, diagnostics: true}
+  - {name: bt-snapcast-autoplug.service, manager: systemd, required: true, diagnostics: true}
   - {name: youtubedl-web.service, manager: systemd, required: true, diagnostics: true}
   - {name: alarm.service, manager: systemd, required: false, diagnostics: true}
 
@@ -58,6 +75,7 @@ mpd:
   poll_interval: 0.5
 
 snapcast:
+  server_host: 127.0.0.1
   http_port: 1780
   expected_stream: MPD
   expected_source_path: /tmp/snapmpdfifo
@@ -128,9 +146,6 @@ web_ui:
   enabled: true
   headless: true
   fail_on_console_errors: true
-  # FileBrowser uses a development certificate that does not contain the IP
-  # address in its SAN. HTTPS remains enabled; only certificate validation is
-  # disabled for browser checks in this development profile.
   verify_tls: false
   endpoints:
     - name: MediaServer
@@ -140,7 +155,6 @@ web_ui:
       selectors:
         - body
       interactions: []
-      screenshot_on_success: true
     - name: YMPD
       protocol: http
       port: 8080
@@ -149,7 +163,6 @@ web_ui:
         - body
         - .starter-template
       interactions: []
-      screenshot_on_success: true
       ignore_console_errors:
         - "Cannot read properties of undefined (reading 'pos')"
     - name: FileBrowser
@@ -160,7 +173,6 @@ web_ui:
         - body
         - '#app'
       interactions: []
-      screenshot_on_success: true
     - name: Jellyfin
       protocol: http
       port: 8096
@@ -169,7 +181,14 @@ web_ui:
         - body
         - '#reactRoot'
       interactions: []
-      screenshot_on_success: true
+    - name: Jellyfin
+      protocol: https
+      port: 8920
+      path: /
+      selectors:
+        - body
+        - '#reactRoot'
+      interactions: []
     - name: YouTubeDL
       protocol: http
       port: 80
@@ -178,7 +197,6 @@ web_ui:
         - body
         - .container-fluid
       interactions: []
-      screenshot_on_success: true
     - name: Snapcast
       protocol: http
       port: 1780
@@ -186,4 +204,3 @@ web_ui:
       selectors:
         - body
       interactions: []
-      screenshot_on_success: true

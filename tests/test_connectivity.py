@@ -31,7 +31,7 @@ def test_ssh_connectivity(test_config: AcceptanceConfig) -> None:
         except SSHHostKeyError as exc:
             pytest.fail(f"SSH host key validation failed: {exc}")
         except SSHUnavailableError as exc:
-            pytest.fail(f"Raspberry Pi 4 is not reachable over SSH: {exc}")
+            pytest.fail(f"Raspberry Pi target is not reachable over SSH: {exc}")
         except SSHError as exc:
             pytest.fail(f"SSH connection failed: {exc}")
         LOGGER.info("SSH connectivity result: %s@%s:%s authenticated and host key accepted",

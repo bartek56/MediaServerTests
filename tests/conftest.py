@@ -137,7 +137,7 @@ class WebUIEndpoint:
     selectors: tuple[str, ...] = ()
     interactions: tuple[Mapping[str, Any], ...] = ()
     screenshot_on_failure: bool = True
-    screenshot_on_success: bool = False
+    screenshot_on_success: bool = True
     ignore_console_errors: tuple[str, ...] = ()
 
 
@@ -166,6 +166,7 @@ class MPDSettings:
 
 @dataclass(frozen=True)
 class SnapcastSettings:
+    server_host: str | None = None
     http_port: int = 1780
     expected_stream: str = "MPD"
     expected_source_path: str = "/tmp/snapmpdfifo"
@@ -195,17 +196,20 @@ class AcceptanceConfig:
     mpd: MPDSettings = field(default_factory=MPDSettings)
     snapcast: SnapcastSettings = field(default_factory=SnapcastSettings)
     pulseaudio: PulseAudioSettings = field(default_factory=PulseAudioSettings)
+    machine: str = "rpi4"
+    test_files: tuple[str, ...] | None = None
 
 
 TEST_DESCRIPTIONS = {
-    "test_raspberry_pi_4_identity": "Verifies that the SSH target identifies itself as Raspberry Pi 4.",
+    "test_raspberry_pi_identity": "Verifies that the SSH target identifies itself as Raspberry Pi 3 or Raspberry Pi 4.",
     "test_mpd_protocol_smoke": "Checks that MPD accepts a TCP connection and returns an MPD greeting.",
     "test_mpd_mpc_playback": "Adds the first track from the MPD database with mpc, plays it and verifies playback starts.",
     "test_certbot_dependencies": "Checks that certbot starts and loads its installed dependencies on the target.",
-    "test_snapclient_defaults_to_mpd_stream": "Checks Snapserver configuration and runtime client routing: the RPi snapclient must use MPD, not Bluetooth.",
+    "test_snapclient_points_to_snapserver": "Checks that the RPi snapclient points to the configured Snapserver.",
     "test_snapweb_sources": "Checks that the Snapweb page sources are installed in the Snapcast document root.",
     "test_snapweb_http_endpoint": "Checks that Snapserver serves the installed Snapweb HTML entrypoint.",
     "test_pulseaudio_tcp_info": "Checks the PulseAudio TCP server through pactl and verifies its negotiated server and default audio settings.",
+    "test_opkg_configuration": "Checks package feeds and runs opkg update for the configured Raspberry Pi machine.",
     "test_transmission_rpc_probe": "Checks that the Transmission RPC endpoint responds to an unauthenticated probe.",
     "test_transmission_web_assets": "Checks over SSH that the Transmission web UI includes an index.html asset on the target.",
     "test_transmission_web_ui": "Checks that the Transmission web interface returns a valid page instead of a missing-files error.",
@@ -394,7 +398,15 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         raise ConfigError(f"invalid YAML in {path}: {exc}") from exc
     root = _mapping(raw, "configuration")
     device = _mapping(root.get("device"), "device")
+    machine = str(environ.get("RPI_MACHINE", device.get("machine", "rpi4"))).lower()
+    if machine not in {"rpi0", "rpi3", "rpi4"}:
+        raise ConfigError("device.machine must be rpi0, rpi3 or rpi4")
     ssh_data = _mapping(device.get("ssh", root.get("ssh")), "device.ssh")
+    raw_test_files = root.get("test_files")
+    test_files = None if raw_test_files is None else tuple(
+        _required_string(item, f"test_files[{index}]")
+        for index, item in enumerate(_as_list(raw_test_files, "test_files"))
+    )
 
     host = environ.get("RPI4_HOST", device.get("host"))
     username = environ.get("RPI4_SSH_USER", ssh_data.get("username", device.get("username")))
@@ -495,6 +507,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
     if not 1 <= snapcast_http_port <= 65535:
         raise ConfigError("snapcast.http_port must be between 1 and 65535")
     snapcast = SnapcastSettings(
+        server_host=(str(snapcast_data["server_host"]) if snapcast_data.get("server_host") else None),
         http_port=snapcast_http_port,
         expected_stream=_required_string(snapcast_data.get("expected_stream", "MPD"), "snapcast.expected_stream"),
         expected_source_path=_required_string(
@@ -549,7 +562,7 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
             selectors=tuple(str(selector) for selector in _as_list(data.get("selectors"), f"web_ui.endpoints[{index}].selectors")),
             interactions=tuple(_mapping(action, f"web_ui.endpoints[{index}].interactions") for action in _as_list(data.get("interactions"), f"web_ui.endpoints[{index}].interactions")),
             screenshot_on_failure=_bool(data.get("screenshot_on_failure"), f"web_ui.endpoints[{index}].screenshot_on_failure", True),
-            screenshot_on_success=_bool(data.get("screenshot_on_success"), f"web_ui.endpoints[{index}].screenshot_on_success", False),
+            screenshot_on_success=_bool(data.get("screenshot_on_success"), f"web_ui.endpoints[{index}].screenshot_on_success", True),
             ignore_console_errors=tuple(
                 str(pattern)
                 for pattern in _as_list(
@@ -578,7 +591,31 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         snapcast=snapcast,
         pulseaudio=pulseaudio,
         web_ui=web_ui,
+        machine=machine,
+        test_files=test_files,
     )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Collect only acceptance-test files selected by the active YAML profile."""
+
+    configured = config.getoption("--config") or os.environ.get("ACCEPTANCE_CONFIG")
+    path = Path(configured).expanduser() if configured else Path("config/test.yaml")
+    if not path.is_file():
+        return
+    try:
+        acceptance_config = load_config(path)
+    except ConfigError:
+        return
+    if acceptance_config.test_files is None:
+        return
+
+    allowed = set(acceptance_config.test_files)
+    items[:] = [
+        item for item in items
+        if item.get_closest_marker("acceptance") is None
+        or Path(str(item.fspath)).name in allowed
+    ]
 
 
 def redact(value: str) -> str:
@@ -759,7 +796,7 @@ def parse_memory_kib(text: str) -> tuple[int, int]:
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    group = parser.getgroup("rpi4 acceptance")
+    group = parser.getgroup("Raspberry Pi acceptance")
     try:
         group.addoption("--config", action="store", default=None,
                         help="YAML device configuration (default: config/test.yaml or ACCEPTANCE_CONFIG)")
@@ -773,14 +810,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "acceptance: test requiring a configured Raspberry Pi 4")
+    config.addinivalue_line("markers", "acceptance: test requiring a configured Raspberry Pi 3 or Raspberry Pi 4")
     config.addinivalue_line("markers", "unit: host-only framework unit test")
     Path("reports").mkdir(parents=True, exist_ok=True)
     metadata = getattr(config, "_metadata", None)
     if metadata is not None:
-        metadata["test framework"] = "Raspberry Pi 4 acceptance tests"
+        metadata["test framework"] = "Raspberry Pi 3/4 acceptance tests"
         metadata["test started"] = datetime.now(timezone.utc).isoformat()
-        metadata["device"] = os.environ.get("RPI4_DEVICE_NAME", "configured Raspberry Pi 4")
+        metadata["device"] = os.environ.get("RPI4_DEVICE_NAME", "configured Raspberry Pi 3 or Raspberry Pi 4")
         metadata["target build-info"] = _TARGET_BUILD_INFO
 
 
@@ -855,7 +892,11 @@ def test_config(pytestconfig: pytest.Config) -> AcceptanceConfig:
     if not path.is_file() and not configured:
         pytest.skip(f"no device configuration found at {path}; copy config/test.example.yaml to config/test.yaml")
     try:
-        return load_config(path)
+        loaded = load_config(path)
+        metadata = getattr(pytestconfig, "_metadata", None)
+        if metadata is not None:
+            metadata["machine"] = loaded.machine
+        return loaded
     except ConfigError as exc:
         pytest.fail(f"invalid acceptance configuration: {exc}")
 
@@ -907,6 +948,6 @@ def socket_connector():
 
 def pytest_html_results_summary(prefix, summary, postfix) -> None:  # pragma: no cover - optional plugin callback
     prefix.extend([
-        "<p>Test runner: Ubuntu host; target: Raspberry Pi 4.</p>",
+        "<p>Test runner: Ubuntu host; target: Raspberry Pi 3 or Raspberry Pi 4.</p>",
         f"<p>Target build-info: {escape(_TARGET_BUILD_INFO)}</p>",
     ])

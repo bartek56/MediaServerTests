@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import logging
+import time
 
 import pytest
 
@@ -18,6 +19,10 @@ def _screenshot_path(endpoint: WebUIEndpoint, directory) -> object:
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", endpoint.name).strip("._") or "endpoint"
     directory.mkdir(parents=True, exist_ok=True)
     return directory / f"{safe_name}.png"
+
+
+def _wait_before_screenshot() -> None:
+    time.sleep(0.5)
 
 
 def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
@@ -99,6 +104,7 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
                             + "\n".join(f"  - {error}" for error in unexpected_console_errors)
                         )
                     if endpoint.screenshot_on_success:
+                        _wait_before_screenshot()
                         screenshot = _screenshot_path(endpoint, settings.screenshot_dir)
                         page.screenshot(path=str(screenshot), full_page=True)
                     else:
@@ -112,6 +118,7 @@ def test_configured_web_ui(test_config: AcceptanceConfig) -> None:
                 except Exception as error:
                     screenshot = None
                     if endpoint.screenshot_on_failure:
+                        _wait_before_screenshot()
                         screenshot = _screenshot_path(endpoint, settings.screenshot_dir)
                         page.screenshot(path=str(screenshot), full_page=True)
                     error_text = redact(str(error))
