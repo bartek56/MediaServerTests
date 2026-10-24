@@ -80,6 +80,9 @@ snapcast:
   expected_stream: MPD
   expected_source_path: /tmp/snapmpdfifo
   bluetooth_stream: Bluetooth
+  bluetooth_source_path: /tmp/snapbtfifo
+  pc_stream: PC
+  pc_source_path: /tmp/snappcfifo
 
 pulseaudio:
   tcp_port: 4713

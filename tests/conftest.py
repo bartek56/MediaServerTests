@@ -171,6 +171,9 @@ class SnapcastSettings:
     expected_stream: str = "MPD"
     expected_source_path: str = "/tmp/snapmpdfifo"
     bluetooth_stream: str = "Bluetooth"
+    bluetooth_source_path: str = "/tmp/snapbtfifo"
+    pc_stream: str = "PC"
+    pc_source_path: str = "/tmp/snappcfifo"
 
 
 @dataclass(frozen=True)
@@ -517,6 +520,18 @@ def load_config(path: Path, environ: Mapping[str, str] | None = None) -> Accepta
         bluetooth_stream=_required_string(
             snapcast_data.get("bluetooth_stream", "Bluetooth"),
             "snapcast.bluetooth_stream",
+        ),
+        bluetooth_source_path=_required_string(
+            snapcast_data.get("bluetooth_source_path", "/tmp/snapbtfifo"),
+            "snapcast.bluetooth_source_path",
+        ),
+        pc_stream=_required_string(
+            snapcast_data.get("pc_stream", "PC"),
+            "snapcast.pc_stream",
+        ),
+        pc_source_path=_required_string(
+            snapcast_data.get("pc_source_path", "/tmp/snappcfifo"),
+            "snapcast.pc_source_path",
         ),
     )
 
